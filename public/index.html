@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Café de Music</title>
+    <style>
+        /* 🌟 기존 카페 감성 CSS 완벽 유지! */
+        @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Lora:ital,wght@0,500;1,400&display=swap');
+
+        body {
+            background-color: #FDFBF7; color: #5C4B41; font-family: 'Gowun Dodum', sans-serif;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; margin: 0; overflow: hidden;
+            background-image: radial-gradient(#E8E2D9 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .cafe-panel {
+            background: #FFFFFF; border: 1px solid #EAE3D9;
+            box-shadow: 0 15px 35px rgba(142, 115, 91, 0.08);
+            border-radius: 20px; padding: 44px 36px; width: 420px;
+            text-align: center; position: relative; max-height: 90vh; overflow-y: auto; /* 내용이 길어질 수 있으니 스크롤 허용! */
+        }
+        
+        .cafe-panel::-webkit-scrollbar { width: 6px; }
+        .cafe-panel::-webkit-scrollbar-thumb { background: #EAE3D9; border-radius: 10px; }
+
+        h2 { font-family: 'Lora', serif; font-size: 28px; font-weight: 500; font-style: italic; color: #8B7355; margin-top: 0; margin-bottom: 6px; letter-spacing: 0.5px; }
+        p.subtitle { font-size: 14px; color: #A39182; margin-bottom: 24px; letter-spacing: 1px; }
+
+        .info-box { background: #F8F5F1; padding: 18px; border-radius: 12px; text-align: left; margin-bottom: 24px; border: 1px solid #EAE3D9; }
+        .info-box h4 { margin: 0 0 8px 0; color: #8B7355; font-size: 14px; font-weight: 700; }
+        .info-box p { margin: 0; font-size: 13px; color: #A39182; line-height: 1.6; }
+
+        .btn {
+            background: transparent; border: 1px solid #D4C4B7; border-radius: 100px; color: #8B7355;
+            font-family: 'Gowun Dodum', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.5px;
+            padding: 14px; width: 100%; cursor: pointer; transition: all 0.3s ease; margin-top: 10px;
+        }
+        .btn-primary { background: #8B7355; color: #FFFFFF; border-color: #8B7355; }
+        .btn-primary:hover { background: #705B43; border-color: #705B43; transform: translateY(-2px); box-shadow: 0 8px 15px rgba(139, 115, 85, 0.2); }
+        .btn-primary:active { transform: translateY(0); box-shadow: none; }
+        .btn-secondary { background: #F8F5F1; color: #8B7355; }
+        .btn-secondary:hover { background: #EFEBE4; }
+        .btn-special { background: #FDFBF7; color: #8B7355; border: 2px dashed #D4C4B7; } /* LLM 추천 전용 버튼! */
+        .btn-special:hover { background: #F8F5F1; border-style: solid; border-color: #8B7355; transform: scale(1.02); }
+
+        .slider-group { margin: 24px 0; text-align: left; }
+        .slider-group label { display: block; font-weight: 700; font-size: 13px; color: #8B7355; margin-bottom: 12px; }
+        .slider-group span { color: #A39182; font-family: 'Lora', serif; font-size: 15px;}
+        input[type=range] { width: 100%; accent-color: #8B7355; cursor: pointer; background: #EAE3D9; height: 4px; border-radius: 2px; outline: none; }
+
+        audio { width: 100%; height: 40px; margin-bottom: 24px; border-radius: 100px; opacity: 0.8; filter: sepia(0.5) hue-rotate(-30deg); transition: 0.3s;}
+        audio:hover { opacity: 1; }
+        
+        .step-container { display: none; animation: floatUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+        .step-container.active { display: block; }
+        
+        @keyframes floatUp { 0% { opacity: 0; transform: translateY(15px); } 100% { opacity: 1; transform: translateY(0); } }
+
+        .result-box { background: #FDFBF7; padding: 24px; border-radius: 16px; text-align: left; margin-bottom: 24px; border: 1px dashed #D4C4B7; position: relative; }
+        .result-item { display: flex; justify-content: space-between; margin-bottom: 14px; font-weight: 700; font-size: 15px; color: #5C4B41;}
+        .result-item span { color: #8B7355; font-family: 'Lora', serif; font-size: 16px; font-style: italic;}
+
+        /* 🔥 제미니 바리스타의 편지 상자! */
+        .llm-box {
+            display: none; background: #FDFBF7; padding: 20px; border-radius: 16px;
+            text-align: left; margin-top: 20px; margin-bottom: 20px; border: 1px solid #EAE3D9;
+            box-shadow: inset 0 2px 10px rgba(142, 115, 91, 0.05);
+            font-size: 14px; line-height: 1.7; color: #5C4B41; white-space: pre-wrap;
+            animation: floatUp 0.5s ease forwards;
+        }
+
+        #loaderOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(253, 251, 247, 0.9); backdrop-filter: blur(4px);
+            border-radius: 20px; display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        .loader {
+            border: 3px solid #EAE3D9; border-top: 3px solid #8B7355; border-radius: 50%;
+            width: 45px; height: 45px; animation: spin 1.2s ease-in-out infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #loadingDots { display: inline-block; width: 20px; text-align: left; }
+        #audioInput { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="cafe-panel">
+    
+    <div id="loaderOverlay">
+        <div class="loader"></div>
+        <h3 id="loaderTitle" style="color: #8B7355; margin: 0; font-family: 'Lora', serif; font-size: 22px; font-style: italic;">Brewing Data<span id="loadingDots">...</span></h3>
+        <p id="loaderSub" style="color: #A39182; font-size: 13px; margin-top: 8px;">음악의 향기를 추출하고 있어요</p>
+    </div>
+
+    <div id="step1" class="step-container active">
+        <h2>Café de KOYORI</h2>
+        <p class="subtitle">어떤 음악의 향기를 맡고 싶으신가요?</p>
+        
+        <div class="info-box">
+            <h4>☕ AI 바리스타 이용 안내</h4>
+            <p>음원 파일(.mp3, .wav)을 올려주시면, 인공지능이 음악의 파동을 분석하여 어떤 장르가 섞여 있는지 깊은 풍미의 <strong>'테이스팅 노트'</strong>로 추출해 드립니다.</p>
+        </div>
+
+        <label for="audioInput" class="btn btn-primary" style="display: inline-block; box-sizing: border-box; width: 100%;">
+            음원 파일 올리기
+        </label>
+        <input type="file" id="audioInput" accept="audio/*">
+    </div>
+
+    <div id="step2" class="step-container">
+        <h2>Hand Drip</h2>
+        <p class="subtitle">향을 맡고 싶은 부분을 찾아봐요.</p>
+
+        <audio id="audioPreview" controls></audio>
+
+        <div class="slider-group">
+            <label>시작 시간 <span id="startVal">00:00</span></label>
+            <input type="range" id="startSlider" min="0" max="300" value="0">
+        </div>
+        
+        <div class="slider-group">
+            <label>추출 길이 <span id="durVal">00:30</span></label>
+            <input type="range" id="durSlider" min="10" max="60" value="30">
+        </div>
+
+        <button class="btn btn-primary" id="analyzeBtn">음악 향기 추출하기</button>
+        <button class="btn btn-secondary" id="backToStep1Btn">다른 원두 고르기</button>
+    </div>
+
+    <div id="step3" class="step-container">
+        <h2>Tasting Notes</h2>
+        <p class="subtitle">추출된 음악의 풍미들</p>
+
+        <div class="result-box" id="resultBox"></div>
+        
+        <div class="llm-box" id="llmResultBox"></div>
+
+        <button class="btn btn-special" id="recommendBtn">☕ 바리스타의 특별 추천 곡 받기</button>
+        
+        <button class="btn btn-primary" id="resetBtn">새로운 원두 추출하기</button>
+    </div>
+</div>
+
+<script>
+    const audioInput = document.getElementById('audioInput');
+    const audioPreview = document.getElementById('audioPreview');
+    const startSlider = document.getElementById('startSlider');
+    const durSlider = document.getElementById('durSlider');
+    const startVal = document.getElementById('startVal');
+    const durVal = document.getElementById('durVal');
+    
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const step3 = document.getElementById('step3');
+    const loaderOverlay = document.getElementById('loaderOverlay');
+    const resultBox = document.getElementById('resultBox');
+    
+    const llmResultBox = document.getElementById('llmResultBox');
+    const recommendBtn = document.getElementById('recommendBtn');
+    
+    const loadingDots = document.getElementById('loadingDots');
+    const loaderTitle = document.getElementById('loaderTitle');
+    const loaderSub = document.getElementById('loaderSub');
+    
+    let dotInterval;
+    let currentAudioDuration = 0;
+    
+    // 🔥 제미니에게 넘겨줄 테이스팅 노트를 저장할 전역 변수!
+    let savedTop5Genres = []; 
+
+    function showStep(stepElement) {
+        document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
+        stepElement.classList.add('active');
+    }
+
+    function formatTime(totalSeconds) {
+        const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+        const s = (totalSeconds % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    function syncSliders() {
+        if (currentAudioDuration === 0) return;
+        const dur = parseInt(durSlider.value);
+        const maxStart = Math.max(0, currentAudioDuration - dur);
+        startSlider.max = maxStart;
+        if (parseInt(startSlider.value) > maxStart) {
+            startSlider.value = maxStart;
+        }
+        startVal.innerText = formatTime(startSlider.value);
+        durVal.innerText = formatTime(durSlider.value);
+    }
+
+    audioInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const fileURL = URL.createObjectURL(file);
+            audioPreview.src = fileURL;
+            audioPreview.onloadedmetadata = function() {
+                currentAudioDuration = Math.floor(audioPreview.duration);
+                durSlider.max = Math.min(60, currentAudioDuration);
+                durSlider.value = currentAudioDuration < 30 ? currentAudioDuration : 30;
+                startSlider.value = 0; 
+                syncSliders(); 
+                showStep(step2);
+            };
+        }
+    });
+
+    startSlider.addEventListener('input', (e) => { startVal.innerText = formatTime(e.target.value); });
+    durSlider.addEventListener('input', () => { syncSliders(); });
+
+    document.getElementById('backToStep1Btn').addEventListener('click', () => {
+        audioInput.value = ''; audioPreview.pause(); currentAudioDuration = 0; showStep(step1);
+    });
+
+    // 🧪 2️⃣ 추출 버튼 클릭 (파이썬 분석)
+    document.getElementById('analyzeBtn').addEventListener('click', async () => {
+        if (!audioInput.files[0]) return;
+        
+        loaderTitle.innerHTML = `Brewing Data<span id="loadingDots"></span>`;
+        loaderSub.innerText = "음악의 향기를 추출하고 있어요.";
+        loaderOverlay.style.display = 'flex';
+        audioPreview.pause(); 
+        
+        let dotCount = 0;
+        const currentLoadingDots = document.getElementById('loadingDots');
+        currentLoadingDots.innerText = '';
+        dotInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            currentLoadingDots.innerText = '.'.repeat(dotCount);
+        }, 400);
+
+        const formData = new FormData();
+        formData.append('audio', audioInput.files[0]);
+        formData.append('start_time', startSlider.value);
+        formData.append('duration', durSlider.value);
+
+        try {
+            const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+            if (!response.ok) throw new Error("Server Error");
+            const result = await response.json();
+            
+            resultBox.innerHTML = '';
+            
+            const top5Results = Object.entries(result)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+
+            // 제미니에게 건네주기 위해 추출된 데이터를 저장해둬!
+            savedTop5Genres = top5Results.map(item => ({ genre: item[0], ratio: (item[1]*100).toFixed(1) + '%' }));
+
+            for (const [genre, score] of top5Results) {
+                const percent = (score * 100).toFixed(1);
+                resultBox.innerHTML += `<div class="result-item"><span>${genre}</span> ${percent}%</div>`;
+            }
+            
+            // LLM 관련 UI 초기화
+            llmResultBox.style.display = 'none';
+            llmResultBox.innerHTML = '';
+            recommendBtn.style.display = 'block';
+
+            clearInterval(dotInterval);
+            loaderOverlay.style.display = 'none';
+            showStep(step3);
+        } catch (error) {
+            console.error(error);
+            alert("시스템 에러: 추출에 실패했어요 ㅠㅠ");
+            clearInterval(dotInterval);
+            loaderOverlay.style.display = 'none';
+        }
+    });
+
+    // ☕ 4️⃣ 제미니 바리스타에게 추천 요청하기!
+    recommendBtn.addEventListener('click', async () => {
+        if (savedTop5Genres.length === 0) return;
+        
+        // 로딩 텍스트를 제미니 감성으로 변경!
+        loaderTitle.innerHTML = `Asking Barista<span id="loadingDots"></span>`;
+        loaderSub.innerText = "바리스타가 어울리는 곡을 고민 중이에요.";
+        loaderOverlay.style.display = 'flex';
+        
+        let dotCount = 0;
+        const currentLoadingDots = document.getElementById('loadingDots');
+        currentLoadingDots.innerText = '';
+        dotInterval = setInterval(() => {
+            dotCount = (dotCount + 1) % 4;
+            currentLoadingDots.innerText = '.'.repeat(dotCount);
+        }, 400);
+
+        try {
+            // 방금 저장해둔 장르 데이터를 Node.js 서버의 LLM 통신구로 쏴버렷!
+            const response = await fetch('/api/recommend', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ genres: savedTop5Genres }) 
+            });
+            
+            if (!response.ok) throw new Error("LLM Server Error");
+            const data = await response.json();
+            
+            // 제미니의 따뜻한 편지를 화면에 예쁘게 띄워줘!
+            llmResultBox.innerHTML = data.recommendation;
+            llmResultBox.style.display = 'block';
+            recommendBtn.style.display = 'none'; // 버튼은 숨기고!
+            
+            clearInterval(dotInterval);
+            loaderOverlay.style.display = 'none';
+        } catch (error) {
+            console.error(error);
+            alert("바리스타가 너무 바빠서 대답을 못 했어요!");
+            clearInterval(dotInterval);
+            loaderOverlay.style.display = 'none';
+        }
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        audioInput.value = ''; currentAudioDuration = 0; savedTop5Genres = []; showStep(step1);
+    });
+</script>
+</body>
+</html>
