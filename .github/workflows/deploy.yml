@@ -1,0 +1,33 @@
+name: 🚀 Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ☁️ 오라클 클라우드 접속 및 배포 자동화
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            # 1. 오라클 서버의 프로젝트 폴더로 이동
+            cd /home/ubuntu/music_classification
+            
+            # 2. 최신 코드 깃허브에서 땡겨오기
+            git pull origin main
+            
+            # 3. Node.js 패키지 최신화
+            npm install
+            
+            # 4. uv를 이용해 파이썬 패키지 빛의 속도로 동기화!
+            source .venv/bin/activate
+            uv pip install -r requirements.txt
+            
+            # 5. Node.js 서버 재시작 (PM2를 쓴다고 가정!)
+            pm2 restart server || pm2 start server.js --name "server"
