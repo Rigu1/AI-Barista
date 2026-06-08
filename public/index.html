@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Café de Music</title>
     <style>
-        /* 🌟 기존 카페 감성 CSS 완벽 유지! */
         @import url('https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Lora:ital,wght@0,500;1,400&display=swap');
 
         body {
@@ -20,7 +19,7 @@
             background: #FFFFFF; border: 1px solid #EAE3D9;
             box-shadow: 0 15px 35px rgba(142, 115, 91, 0.08);
             border-radius: 20px; padding: 44px 36px; width: 420px;
-            text-align: center; position: relative; max-height: 90vh; overflow-y: auto; /* 내용이 길어질 수 있으니 스크롤 허용! */
+            text-align: center; position: relative; max-height: 90vh; overflow-y: auto;
         }
         
         .cafe-panel::-webkit-scrollbar { width: 6px; }
@@ -63,7 +62,6 @@
         .result-item { display: flex; justify-content: space-between; margin-bottom: 14px; font-weight: 700; font-size: 15px; color: #5C4B41;}
         .result-item span { color: #8B7355; font-family: 'Lora', serif; font-size: 16px; font-style: italic;}
 
-        /* 🔥 제미니 바리스타의 편지 상자! */
         .llm-box {
             display: none; background: #FDFBF7; padding: 20px; border-radius: 16px;
             text-align: left; margin-top: 20px; margin-bottom: 20px; border: 1px solid #EAE3D9;
@@ -171,7 +169,6 @@
     let dotInterval;
     let currentAudioDuration = 0;
     
-    // 🔥 제미니에게 넘겨줄 테이스팅 노트를 저장할 전역 변수!
     let savedTop5Genres = []; 
 
     function showStep(stepElement) {
@@ -220,7 +217,6 @@
         audioInput.value = ''; audioPreview.pause(); currentAudioDuration = 0; showStep(step1);
     });
 
-    // 🧪 2️⃣ 추출 버튼 클릭 (파이썬 분석)
     document.getElementById('analyzeBtn').addEventListener('click', async () => {
         if (!audioInput.files[0]) return;
         
@@ -253,7 +249,6 @@
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 5);
 
-            // 제미니에게 건네주기 위해 추출된 데이터를 저장해둬!
             savedTop5Genres = top5Results.map(item => ({ genre: item[0], ratio: (item[1]*100).toFixed(1) + '%' }));
 
             for (const [genre, score] of top5Results) {
@@ -261,7 +256,6 @@
                 resultBox.innerHTML += `<div class="result-item"><span>${genre}</span> ${percent}%</div>`;
             }
             
-            // LLM 관련 UI 초기화
             llmResultBox.style.display = 'none';
             llmResultBox.innerHTML = '';
             recommendBtn.style.display = 'block';
@@ -277,11 +271,9 @@
         }
     });
 
-    // ☕ 4️⃣ 제미니 바리스타에게 추천 요청하기!
     recommendBtn.addEventListener('click', async () => {
         if (savedTop5Genres.length === 0) return;
         
-        // 로딩 텍스트를 제미니 감성으로 변경!
         loaderTitle.innerHTML = `Asking Barista<span id="loadingDots"></span>`;
         loaderSub.innerText = "바리스타가 어울리는 곡을 고민 중이에요.";
         loaderOverlay.style.display = 'flex';
@@ -295,7 +287,6 @@
         }, 400);
 
         try {
-            // 방금 저장해둔 장르 데이터를 Node.js 서버의 LLM 통신구로 쏴버렷!
             const response = await fetch('/api/recommend', { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' },
@@ -305,10 +296,9 @@
             if (!response.ok) throw new Error("LLM Server Error");
             const data = await response.json();
             
-            // 제미니의 따뜻한 편지를 화면에 예쁘게 띄워줘!
             llmResultBox.innerHTML = data.recommendation;
             llmResultBox.style.display = 'block';
-            recommendBtn.style.display = 'none'; // 버튼은 숨기고!
+            recommendBtn.style.display = 'none';
             
             clearInterval(dotInterval);
             loaderOverlay.style.display = 'none';

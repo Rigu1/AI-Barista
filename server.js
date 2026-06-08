@@ -1,4 +1,3 @@
-// 🔥 코요리의 비밀 금고 해제! (.env 파일의 내용들을 서버가 읽을 수 있게 해줘!)
 require('dotenv').config();
 
 const express = require('express');
@@ -11,14 +10,11 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
-// 프론트엔드에서 날아오는 JSON 데이터를 해석하기 위한 파서!
 app.use(express.json());
 app.use(express.static('public'));
 
-// 🔥 안전하게 숨겨둔 조수군의 제미니 API 키를 금고(process.env)에서 꺼내오기!
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// --- [ 1. Python Audio Analysis Endpoint ] ---
 const runPython = (filePath, startTime, duration) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, 'analyzer.py');
@@ -72,7 +68,6 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
     }
 });
 
-// --- [ 2. LLM Recommendation Endpoint ] ---
 app.post('/api/recommend', async (req, res) => {
     const { genres } = req.body;
     

@@ -1,5 +1,13 @@
 node_modules/
-.env
 uploads/
 __pycache__/
 oracle/
+dist/
+build/
+
+.DS_Store
+*.log
+.env
+
+.idea/
+.vscode/
