@@ -37,7 +37,7 @@ class AnalyzeRequest(BaseModel):
 @app.post("/analyze")
 async def analyze_audio(req: AnalyzeRequest):
     try:
-        analyze_duration = min(req.duration, 10.0)
+        analyze_duration = min(req.duration, 20.0)
         target_sr = 16000
         
         with sf.SoundFile(req.filepath) as f:
