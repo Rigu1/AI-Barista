@@ -12,6 +12,7 @@ const fetch = require('node-fetch');
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
+// 연결 재사용(Keep-Alive) 에이전트 설정
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
 const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
 
@@ -28,7 +29,7 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
     console.log(`[Node.js] 오디오 파일 도착, 분석을 요청합니다.`);
 
     try {
-        console.time('FastAPI-Latency');
+        console.time('FastAPI-Latency'); 
         
         const pyResponse = await fetch('http://127.0.0.1:8000/analyze', {
             method: 'POST',
@@ -50,7 +51,7 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
         }
         
         const result = await pyResponse.json();
-        console.timeEnd('FastAPI-Latency');
+        console.timeEnd('FastAPI-Latency'); 
         
         console.log('[Node.js] 분석 완료! 손님에게 테이스팅 노트를 전달합니다.');
         res.json(result);
@@ -70,12 +71,14 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
 
 app.post('/api/recommend', async (req, res) => {
     const { genres } = req.body;
+    const requestId = Date.now();
+    const timerLabel = `Gemini-Latency-${requestId}`;
     
     console.log(`[Node.js] 테이스팅 노트 도착! Gemini 바리스타에게 추천 곡을 묻습니다.`);
 
     try {
-        console.time('Gemini-Latency');
-        const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+        console.time(timerLabel);
+        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
 장르 데이터: ${JSON.stringify(genres)}
@@ -86,7 +89,7 @@ app.post('/api/recommend', async (req, res) => {
         const response = await result.response;
         const text = response.text();
 
-        console.timeEnd('Gemini-Latency');
+        console.timeEnd(timerLabel);
         console.log('[Node.js] AI 바리스타 추천 완료!');
         
         res.json({ recommendation: text });
