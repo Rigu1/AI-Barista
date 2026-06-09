@@ -13,7 +13,7 @@ app = FastAPI()
 
 print("="*50)
 print("[FastAPI] 모델 로딩 시작...")
-pipe = pipeline("audio-classification", model="michaelfeil/audio-classification-music-genres", device=-1)
+pipe = pipeline("audio-classification", model="dima806/music_genres_classification", device=-1)
 print("[FastAPI] 모델 로딩 완료")
 print("="*50)
 
