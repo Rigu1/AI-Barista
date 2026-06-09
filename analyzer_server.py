@@ -25,18 +25,11 @@ class AnalyzeRequest(BaseModel):
 @app.post("/analyze")
 async def analyze_audio(req: AnalyzeRequest):
     try:
-        segment_duration = 10.0
-        segments = []
-        for i in range(3):
-            start = req.start_time + (i * segment_duration)
-            y, sr = librosa.load(req.filepath, sr=16000, offset=start, duration=segment_duration)
-            segments.append(y)
+        y, sr = librosa.load(req.filepath, sr=16000, offset=req.start_time, duration=req.duration)
         
-        all_results = []
-        for seg in segments:
-            all_results.append(pipe(seg))
-            
-        return {"status": "success", "msg": "3구간 분할 분석 완료"}
+        results = pipe(y, top_k=3)
+        
+        return {res['label']: float(res['score']) for res in results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
