@@ -2,7 +2,6 @@ require('dotenv').config();
 
 const express = require('express');
 const multer = require('multer');
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs').promises; 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -15,55 +14,41 @@ app.use(express.static('public'));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const runPython = (filePath, startTime, duration) => {
-    return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, 'analyzer.py');
-        const pythonProcess = spawn('python3', [scriptPath, filePath, startTime, duration]);
-
-        let dataString = '';
-        let errorString = '';
-
-        pythonProcess.stdout.on('data', (data) => { dataString += data.toString(); });
-        pythonProcess.stderr.on('data', (data) => { errorString += data.toString(); });
-
-        pythonProcess.on('close', (code) => {
-            if (code !== 0 || errorString) {
-                console.error(`[Python Error]:\n${errorString}`);
-            }
-            try {
-                const jsonStart = dataString.indexOf('{');
-                const jsonEnd = dataString.lastIndexOf('}') + 1;
-                
-                if (jsonStart === -1 || jsonEnd === 0) {
-                    throw new Error("Python script did not return valid JSON.");
-                }
-                resolve(JSON.parse(dataString.substring(jsonStart, jsonEnd)));
-            } catch (e) {
-                reject(new Error(errorString || "JSON parsing failed."));
-            }
-        });
-    });
-};
-
 app.post('/api/analyze', upload.single('audio'), async (req, res) => {
     const { start_time, duration } = req.body;
-    const filePath = req.file.path;
+    const filePath = path.resolve(req.file.path)
 
-    console.log(`[Server] Request received. Analyzing audio from ${start_time}s for ${duration}s.`);
+    console.log(`[Node.js] 오디오 파일 도착, 분석을 요청합니다.`);
 
     try {
-        const result = await runPython(filePath, start_time, duration);
-        console.log('[Server] Analysis complete. Returning payload to client.');
+        const pyResponse = await fetch('http://127.0.0.1:8000/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filepath: filePath,
+                start_time: parseFloat(start_time),
+                duration: parseFloat(duration)
+            })
+        });
+
+        if (!pyResponse.ok) {
+            const errorData = await pyResponse.text();
+            throw new Error(`FastAPI에서 에러 발생: ${errorData}`);
+        }
+        
+        const result = await pyResponse.json();
+        console.log('[Node.js] 분석 완료! 손님에게 테이스팅 노트를 전달합니다.');
         res.json(result);
+
     } catch (error) {
-        console.error("[Node.js Error]:", error.message);
-        res.status(500).json({ error: "Internal server error during audio analysis." });
+        console.error("[Node.js 통신 에러]:", error.message);
+        res.status(500).json({ error: "오디오 분석 중 내부 통신 에러가 발생했습니다." });
     } finally {
         try {
             await fs.unlink(filePath);
-            console.log('[Server] Temporary file cleaned up successfully.');
+            console.log('[Node.js] 다 쓴 임시 오디오 파일을 깨끗하게 청소했습니다.');
         } catch (e) {
-            console.error("[Server] Failed to clean up temporary file:", e);
+            console.error("[Node.js] 파일 청소 실패:", e);
         }
     }
 });
@@ -71,12 +56,10 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
 app.post('/api/recommend', async (req, res) => {
     const { genres } = req.body;
     
-    console.log(`[Server] Request received. Requesting LLM recommendation based on genres.`);
+    console.log(`[Node.js] 테이스팅 노트 도착! Gemini 바리스타에게 추천 곡을 묻습니다.`);
 
     try {
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-3.5-flash"
-        });
+        const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
 장르 데이터: ${JSON.stringify(genres)}
@@ -87,14 +70,14 @@ app.post('/api/recommend', async (req, res) => {
         const response = await result.response;
         const text = response.text();
 
-        console.log('[Server] LLM response generated successfully.');
+        console.log('[Node.js] AI 바리스타 추천 완료!');
         res.json({ recommendation: text });
     } catch (error) {
-        console.error("[LLM Error]:", error);
-        res.status(500).json({ error: "Failed to generate LLM recommendation." });
+        console.error("[Gemini 에러]:", error);
+        res.status(500).json({ error: "AI 바리스타의 큐레이션 생성에 실패했습니다." });
     }
 });
 
 app.listen(3000, () => {
-    console.log('Server is running on http://localhost:3000');
+    console.log('✨ [Node.js] 메인 서버 기동');
 });
