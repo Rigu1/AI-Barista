@@ -201,8 +201,11 @@
             audioPreview.src = fileURL;
             audioPreview.onloadedmetadata = function() {
                 currentAudioDuration = Math.floor(audioPreview.duration);
-                durSlider.max = Math.min(10, currentAudioDuration); 
-                durSlider.value = currentAudioDuration < 10 ? currentAudioDuration : 10; 
+                durSlider.max = Math.min(10, currentAudioDuration);
+                
+                durSlider.value = 5; 
+                
+                durVal.innerText = formatTime(durSlider.value);
                 startSlider.value = 0; 
                 syncSliders(); 
                 showStep(step2);
