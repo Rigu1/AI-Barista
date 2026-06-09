@@ -12,15 +12,21 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 print("="*50)
-print("[FastAPI] 모델 로딩 준비...")
+print("[FastAPI] 모델 로딩 중... (잠시만 기다려주세요)")
+
 raw_pipe = pipeline("audio-classification", model="dima806/music_genres_classification", device=-1)
+
 try:
     raw_pipe.model = torch.quantization.quantize_dynamic(
-        raw_pipe.model, {torch.nn.Linear}, dtype=torch.qint8
+        raw_pipe.model, 
+        {torch.nn.Linear}, 
+        dtype=torch.qint8
     )
+    print("[FastAPI] 모델 로딩 완료")
 except Exception as e:
-    pass
-print("[FastAPI] 로딩 완료!")
+    print(f"[FastAPI] {e}")
+
+print("[FastAPI] 모든 모델 로딩 완료")
 print("="*50)
 
 class AnalyzeRequest(BaseModel):
@@ -31,27 +37,20 @@ class AnalyzeRequest(BaseModel):
 @app.post("/analyze")
 async def analyze_audio(req: AnalyzeRequest):
     try:
+        analyze_duration = min(req.duration, 10.0)
         target_sr = 16000
         
         with sf.SoundFile(req.filepath) as f:
             native_sr = f.samplerate
-            total_frames = f.frames
-            total_duration_sec = total_frames / native_sr
+            start_sample = int(req.start_time * native_sr)
+            max_samples = int(analyze_duration * native_sr)
             
-            if total_duration_sec <= 10.0:
-                y = f.read(dtype='float32')
-            else:
-                f.seek(0)
-                y_front = f.read(frames=int(5.0 * native_sr), dtype='float32')
-                
-                start_back = max(0, total_frames - int(5.0 * native_sr))
-                f.seek(start_back)
-                y_back = f.read(frames=int(5.0 * native_sr), dtype='float32')
-                
-                y = np.concatenate((y_front, y_back))
-                
+            f.seek(start_sample)
+            y = f.read(frames=max_samples, dtype='float32')
+            
             if len(y.shape) > 1:
                 y = np.mean(y, axis=1)
+                
             if native_sr != target_sr:
                 secs = len(y) / native_sr
                 num_samples = int(secs * target_sr)
