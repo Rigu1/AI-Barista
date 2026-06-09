@@ -24,18 +24,20 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/analyze")
 async def analyze_audio(req: AnalyzeRequest):
-    print(f"[FastAPI] 분석 요청 접수: {req.filepath} ({req.start_time}s ~ {req.start_time + req.duration}s)")
     try:
-        y, sr = librosa.load(req.filepath, sr=16000, offset=req.start_time, duration=req.duration)
+        segment_duration = 10.0
+        segments = []
+        for i in range(3):
+            start = req.start_time + (i * segment_duration)
+            y, sr = librosa.load(req.filepath, sr=16000, offset=start, duration=segment_duration)
+            segments.append(y)
         
-        results = pipe(y)
-        
-        output_dict = {res['label']: float(res['score']) for res in results}
-        
-        return output_dict
-        
+        all_results = []
+        for seg in segments:
+            all_results.append(pipe(seg))
+            
+        return {"status": "success", "msg": "3구간 분할 분석 완료"}
     except Exception as e:
-        print(f"[FastAPI] 분석 중 에러 발생: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
