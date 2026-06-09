@@ -124,7 +124,7 @@
         
         <div class="slider-group">
             <label>추출 길이 <span id="durVal">00:30</span></label>
-            <input type="range" id="durSlider" min="10" max="60" value="30">
+            <input type="range" id="durSlider" min="3" max="10" value="5">
         </div>
 
         <button class="btn btn-primary" id="analyzeBtn">음악 향기 추출하기</button>
@@ -201,8 +201,8 @@
             audioPreview.src = fileURL;
             audioPreview.onloadedmetadata = function() {
                 currentAudioDuration = Math.floor(audioPreview.duration);
-                durSlider.max = Math.min(60, currentAudioDuration);
-                durSlider.value = currentAudioDuration < 30 ? currentAudioDuration : 30;
+                durSlider.max = Math.min(10, currentAudioDuration); 
+                durSlider.value = currentAudioDuration < 10 ? currentAudioDuration : 10; 
                 startSlider.value = 0; 
                 syncSliders(); 
                 showStep(step2);
