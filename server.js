@@ -26,7 +26,7 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                filepath: filePath,
+                filepath: String(filePath),
                 start_time: parseFloat(start_time),
                 duration: parseFloat(duration)
             })

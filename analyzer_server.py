@@ -24,6 +24,7 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/analyze")
 async def analyze_audio(req: AnalyzeRequest):
+    print(f"[FastAPI] DEBUG: 수신한 데이터: {req}")
     try:
         y, sr = librosa.load(req.filepath, sr=16000, offset=req.start_time, duration=req.duration)
         temp_path = f"temp_fastapi_{os.getpid()}.wav"
