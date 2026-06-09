@@ -5,9 +5,15 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises; 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const http = require('http');
+const https = require('https');
+const fetch = require('node-fetch');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
+
+const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
+const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -17,14 +23,20 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/api/analyze', upload.single('audio'), async (req, res) => {
     const { start_time, duration } = req.body;
-    const filePath = path.resolve(req.file.path)
+    const filePath = path.resolve(req.file.path);
 
     console.log(`[Node.js] 오디오 파일 도착, 분석을 요청합니다.`);
 
     try {
+        console.time('FastAPI-Latency');
+        
         const pyResponse = await fetch('http://127.0.0.1:8000/analyze', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Connection': 'keep-alive' 
+            },
+            agent: httpAgent,
             body: JSON.stringify({
                 filepath: String(filePath),
                 start_time: parseFloat(start_time),
@@ -38,6 +50,8 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
         }
         
         const result = await pyResponse.json();
+        console.timeEnd('FastAPI-Latency');
+        
         console.log('[Node.js] 분석 완료! 손님에게 테이스팅 노트를 전달합니다.');
         res.json(result);
 
@@ -60,6 +74,7 @@ app.post('/api/recommend', async (req, res) => {
     console.log(`[Node.js] 테이스팅 노트 도착! Gemini 바리스타에게 추천 곡을 묻습니다.`);
 
     try {
+        console.time('Gemini-Latency');
         const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
@@ -71,7 +86,9 @@ app.post('/api/recommend', async (req, res) => {
         const response = await result.response;
         const text = response.text();
 
+        console.timeEnd('Gemini-Latency');
         console.log('[Node.js] AI 바리스타 추천 완료!');
+        
         res.json({ recommendation: text });
     } catch (error) {
         console.error("[Gemini 에러]:", error);
