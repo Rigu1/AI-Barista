@@ -7,7 +7,6 @@ const fs = require('fs').promises;
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const http = require('http');
 const https = require('https');
-const fetch = require('node-fetch');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -21,6 +20,36 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static('public'));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function parseJsonResponse(text) {
+    const trimmed = text.trim();
+    const withoutFence = trimmed
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+    return JSON.parse(withoutFence);
+}
+
+function formatRecommendations(recommendations) {
+    return recommendations.slice(0, 3).map((item, index) => {
+        const title = escapeHtml(item.title);
+        const artist = escapeHtml(item.artist);
+        const reason = escapeHtml(item.reason);
+        const query = encodeURIComponent(`${item.title ?? ''} ${item.artist ?? ''}`.trim());
+        const youtubeUrl = `https://www.youtube.com/results?search_query=${query}`;
+
+        return `${index + 1}. <strong>${title} - ${artist}</strong> <a class="youtube-link" href="${youtubeUrl}" target="_blank" rel="noopener noreferrer">YouTube</a><br>${reason}`;
+    }).join('<br><br>');
+}
 
 app.post('/api/analyze', upload.single('audio'), async (req, res) => {
     const { start_time, duration } = req.body;
@@ -78,27 +107,40 @@ app.post('/api/recommend', async (req, res) => {
 
     try {
         console.time(timerLabel);
-        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
+        const model = genAI.getGenerativeModel({
+            model: "gemini-3.1-flash-lite",
+            generationConfig: {
+                responseMimeType: "application/json"
+            }
+        });
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
 장르 데이터: ${JSON.stringify(genres)}
 
-이 취향을 가진 손님에게 어울리는 실제 곡 3개를 추천해주세요. 따뜻한 카페 바리스타의 말투로, 곡마다 추천 이유를 짧고 예쁘게 작성해주세요. 너무 길지 않게 핵심만 다정하게 말해주세요.`;
+이 취향을 가진 손님에게 어울리는 실제 곡 3개를 추천해주세요.
+반드시 아래 JSON 형식만 반환해주세요. 마크다운, 설명, 코드블록은 넣지 마세요.
+{
+  "recommendations": [
+    { "title": "곡명", "artist": "아티스트명", "reason": "따뜻한 카페 바리스타 말투의 짧은 추천 이유" }
+  ]
+}`;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
+        const parsed = parseJsonResponse(text);
+        const formattedRecommendation = formatRecommendations(parsed.recommendations || []);
 
         console.timeEnd(timerLabel);
         console.log('[Node.js] AI 바리스타 추천 완료!');
         
-        res.json({ recommendation: text });
+        res.json({ recommendation: formattedRecommendation });
     } catch (error) {
         console.error("[Gemini 에러]:", error);
         res.status(500).json({ error: "AI 바리스타의 큐레이션 생성에 실패했습니다." });
     }
 });
 
-app.listen(3000, () => {
+const server = app.listen(3000, '127.0.0.1', () => {
     console.log('✨ [Node.js] 메인 서버 기동');
 });
