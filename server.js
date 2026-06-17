@@ -99,7 +99,7 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
 });
 
 app.post('/api/recommend', async (req, res) => {
-    const { genres } = req.body;
+    const { genres, trackName } = req.body;
     const requestId = Date.now();
     const timerLabel = `Gemini-Latency-${requestId}`;
     
@@ -115,9 +115,15 @@ app.post('/api/recommend', async (req, res) => {
         });
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
+업로드한 파일명: ${trackName || '알 수 없음'}
 장르 데이터: ${JSON.stringify(genres)}
 
 이 취향을 가진 손님에게 어울리는 실제 곡 3개를 추천해주세요.
+업로드한 파일명은 아주 약한 힌트로만 참고하고, 추천의 주된 근거는 장르 데이터로 삼아주세요.
+파일명만 보고 원곡, 아티스트, 분위기를 단정하지 마세요.
+파일명이 audio.mp3, track01.wav, recording, KakaoTalk, 숫자/날짜 위주 이름처럼 의미 없는 파일명으로 보이면 완전히 무시해주세요.
+추천 곡은 실제로 존재한다고 확실히 알고 있는 곡만 골라주세요.
+확신이 없으면 파일명 추론을 포기하고, 장르 데이터에 어울리는 널리 알려진 실제 곡을 추천해주세요.
 반드시 아래 JSON 형식만 반환해주세요. 마크다운, 설명, 코드블록은 넣지 마세요.
 {
   "recommendations": [

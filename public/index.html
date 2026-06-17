@@ -174,7 +174,8 @@
     let dotInterval;
     let currentAudioDuration = 0;
     
-    let savedTop5Genres = []; 
+    let savedTop5Genres = [];
+    let savedAudioFileName = '';
 
     function showStep(stepElement) {
         document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
@@ -202,6 +203,7 @@
     audioInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (file) {
+            savedAudioFileName = file.name;
             const fileURL = URL.createObjectURL(file);
             audioPreview.src = fileURL;
             audioPreview.onloadedmetadata = function() {
@@ -222,7 +224,7 @@
     durSlider.addEventListener('input', () => { syncSliders(); });
 
     document.getElementById('backToStep1Btn').addEventListener('click', () => {
-        audioInput.value = ''; audioPreview.pause(); currentAudioDuration = 0; showStep(step1);
+        audioInput.value = ''; audioPreview.pause(); currentAudioDuration = 0; savedAudioFileName = ''; showStep(step1);
     });
 
     document.getElementById('analyzeBtn').addEventListener('click', async () => {
@@ -298,7 +300,7 @@
             const response = await fetch('/api/recommend', { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ genres: savedTop5Genres }) 
+                body: JSON.stringify({ genres: savedTop5Genres, trackName: savedAudioFileName }) 
             });
             
             if (!response.ok) throw new Error("LLM Server Error");
@@ -319,7 +321,7 @@
     });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
-        audioInput.value = ''; currentAudioDuration = 0; savedTop5Genres = []; showStep(step1);
+        audioInput.value = ''; currentAudioDuration = 0; savedTop5Genres = []; savedAudioFileName = ''; showStep(step1);
     });
 </script>
 </body>
