@@ -9,10 +9,36 @@ const http = require('http');
 const https = require('https');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'webm']);
 const PYTHON_ANALYZE_URL = 'http://127.0.0.1:8000/analyze';
 const PYTHON_TIMEOUT_MS = 15000;
 const GEMINI_TIMEOUT_MS = 20000;
+
+function isAcceptedAudioFile(file) {
+    if (file.mimetype && file.mimetype.startsWith('audio/')) return true;
+
+    const extension = path.extname(file.originalname || '').slice(1).toLowerCase();
+    return AUDIO_EXTENSIONS.has(extension);
+}
+
+const upload = multer({
+    dest: 'uploads/',
+    limits: {
+        fileSize: MAX_UPLOAD_SIZE,
+        files: 1
+    },
+    fileFilter: (req, file, cb) => {
+        if (isAcceptedAudioFile(file)) {
+            cb(null, true);
+            return;
+        }
+
+        const error = new Error('UNSUPPORTED_AUDIO_TYPE');
+        error.code = 'UNSUPPORTED_AUDIO_TYPE';
+        cb(error);
+    }
+});
 
 // 연결 재사용(Keep-Alive) 에이전트 설정
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
@@ -33,10 +59,42 @@ class AppError extends Error {
 }
 
 function sendError(res, error, fallbackMessage) {
+    if (res.headersSent) return;
+
     const status = error instanceof AppError ? error.status : 500;
     const message = error instanceof AppError ? error.publicMessage : fallbackMessage;
 
     res.status(status).json({ error: message });
+}
+
+function normalizeServerError(error) {
+    if (error instanceof AppError) return error;
+
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return new AppError(413, "파일이 너무 큽니다. 50MB 이하의 음원 파일을 선택해주세요.", error.message);
+        }
+
+        if (error.code === 'LIMIT_FILE_COUNT') {
+            return new AppError(400, "한 번에 하나의 음원 파일만 업로드할 수 있습니다.", error.message);
+        }
+
+        return new AppError(400, "음원 파일 업로드에 실패했습니다.", error.message);
+    }
+
+    if (error.code === 'UNSUPPORTED_AUDIO_TYPE') {
+        return new AppError(415, "오디오 파일만 업로드할 수 있습니다.");
+    }
+
+    if (error.type === 'entity.too.large') {
+        return new AppError(413, "요청 데이터가 너무 큽니다.");
+    }
+
+    if (error instanceof SyntaxError && 'body' in error) {
+        return new AppError(400, "요청 JSON 형식이 올바르지 않습니다.", error.message);
+    }
+
+    return new AppError(500, "서버 처리 중 오류가 발생했습니다.", error.message || String(error));
 }
 
 function parseNumber(value, fieldName) {
@@ -107,6 +165,10 @@ function validateGenres(genres) {
 function validateRecommendations(recommendations) {
     if (!Array.isArray(recommendations) || recommendations.length === 0) {
         throw new AppError(502, "추천 결과가 비어 있습니다.", "Gemini response has no recommendations");
+    }
+
+    if (recommendations.length < 3) {
+        throw new AppError(502, "추천 결과가 부족합니다.", "Gemini returned fewer than 3 recommendations");
     }
 
     return recommendations.slice(0, 3).map((item) => {
@@ -337,6 +399,21 @@ app.post('/api/recommend', async (req, res) => {
     }
 });
 
+app.use((error, req, res, next) => {
+    const normalizedError = normalizeServerError(error);
+    console.error("[Express 에러]:", normalizedError.message);
+    sendError(res, normalizedError, "서버 처리 중 오류가 발생했습니다.");
+});
+
 const server = app.listen(3000, '127.0.0.1', () => {
     console.log('✨ [Node.js] 메인 서버 기동');
+});
+
+server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+        console.error('[Node.js] 3000 포트가 이미 사용 중입니다. 기존 서버를 종료하거나 다른 포트를 사용해주세요.');
+        return;
+    }
+
+    console.error('[Node.js] 서버 시작 중 오류가 발생했습니다:', error);
 });
