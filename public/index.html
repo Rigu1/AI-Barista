@@ -40,6 +40,9 @@
         .btn-primary { background: #8B7355; color: #FFFFFF; border-color: #8B7355; }
         .btn-primary:hover { background: #705B43; border-color: #705B43; transform: translateY(-2px); box-shadow: 0 8px 15px rgba(139, 115, 85, 0.2); }
         .btn-primary:active { transform: translateY(0); box-shadow: none; }
+        .btn:disabled, .btn.is-disabled {
+            opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none;
+        }
         .btn-secondary { background: #F8F5F1; color: #8B7355; }
         .btn-secondary:hover { background: #EFEBE4; }
         .btn-special { background: #FDFBF7; color: #8B7355; border: 2px dashed #D4C4B7; } /* LLM 추천 전용 버튼! */
@@ -74,6 +77,12 @@
             text-decoration: none; border-bottom: 1px solid #D4C4B7; line-height: 1.2;
         }
         .youtube-link:hover { color: #705B43; border-bottom-color: #705B43; }
+        .status-box {
+            display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px;
+            background: #FFF8F1; border: 1px solid #E8D5C1; color: #8B5E3C;
+            font-size: 13px; line-height: 1.5; text-align: left;
+        }
+        .status-box.is-info { background: #F8F5F1; border-color: #EAE3D9; color: #8B7355; }
 
         #loaderOverlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -110,7 +119,7 @@
             <p>음원 파일(.mp3, .wav)을 올려주시면, 인공지능이 음악의 파동을 분석하여 어떤 장르가 섞여 있는지 깊은 풍미의 <strong>'테이스팅 노트'</strong>로 추출해 드립니다.</p>
         </div>
 
-        <label for="audioInput" class="btn btn-primary" style="display: inline-block; box-sizing: border-box; width: 100%;">
+        <label for="audioInput" class="btn btn-primary" id="uploadLabel" style="display: inline-block; box-sizing: border-box; width: 100%;">
             음원 파일 올리기
         </label>
         <input type="file" id="audioInput" accept="audio/*">
@@ -148,10 +157,13 @@
         
         <button class="btn btn-primary" id="resetBtn">새로운 원두 추출하기</button>
     </div>
+
+    <div class="status-box" id="statusBox" role="status" aria-live="polite"></div>
 </div>
 
 <script>
     const audioInput = document.getElementById('audioInput');
+    const uploadLabel = document.getElementById('uploadLabel');
     const audioPreview = document.getElementById('audioPreview');
     const startSlider = document.getElementById('startSlider');
     const durSlider = document.getElementById('durSlider');
@@ -170,12 +182,75 @@
     const loadingDots = document.getElementById('loadingDots');
     const loaderTitle = document.getElementById('loaderTitle');
     const loaderSub = document.getElementById('loaderSub');
+    const statusBox = document.getElementById('statusBox');
     
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
+    const MIN_ANALYZE_DURATION = 3;
+    const METADATA_TIMEOUT_MS = 8000;
+    const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'webm'];
+
     let dotInterval;
     let currentAudioDuration = 0;
+    let currentObjectUrl = '';
+    let metadataTimer;
+    let isAnalyzing = false;
+    let isRecommending = false;
     
     let savedTop5Genres = [];
     let savedAudioFileName = '';
+
+    function showStatus(message, type = 'error') {
+        statusBox.innerText = message;
+        statusBox.className = `status-box ${type === 'info' ? 'is-info' : ''}`;
+        statusBox.style.display = 'block';
+    }
+
+    function clearStatus() {
+        statusBox.innerText = '';
+        statusBox.style.display = 'none';
+    }
+
+    function setBusy(isBusy) {
+        audioInput.disabled = isBusy;
+        uploadLabel.classList.toggle('is-disabled', isBusy);
+        document.getElementById('analyzeBtn').disabled = isBusy;
+        document.getElementById('backToStep1Btn').disabled = isBusy;
+        recommendBtn.disabled = isBusy;
+        document.getElementById('resetBtn').disabled = isBusy;
+    }
+
+    function stopLoader() {
+        clearInterval(dotInterval);
+        loaderOverlay.style.display = 'none';
+    }
+
+    function revokeCurrentObjectUrl() {
+        if (currentObjectUrl) {
+            URL.revokeObjectURL(currentObjectUrl);
+            currentObjectUrl = '';
+        }
+    }
+
+    function resetSelectedAudio(message) {
+        clearTimeout(metadataTimer);
+        audioPreview.onerror = null;
+        audioPreview.onloadedmetadata = null;
+        audioPreview.removeAttribute('src');
+        audioPreview.load();
+        audioInput.value = '';
+        currentAudioDuration = 0;
+        savedAudioFileName = '';
+        savedTop5Genres = [];
+        revokeCurrentObjectUrl();
+        if (message) showStatus(message);
+    }
+
+    function isProbablyAudio(file) {
+        if (file.type && file.type.startsWith('audio/')) return true;
+
+        const extension = file.name.split('.').pop().toLowerCase();
+        return AUDIO_EXTENSIONS.includes(extension);
+    }
 
     function showStep(stepElement) {
         document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
@@ -201,16 +276,50 @@
     }
 
     audioInput.addEventListener('change', function(e) {
+        if (isAnalyzing || isRecommending) {
+            showStatus("처리가 끝난 뒤 다른 음원을 선택해주세요.");
+            return;
+        }
+
+        clearStatus();
         const file = e.target.files[0];
         if (file) {
+            if (!isProbablyAudio(file)) {
+                resetSelectedAudio("오디오 파일만 올릴 수 있어요. mp3, wav 같은 음원 파일을 선택해주세요.");
+                return;
+            }
+
+            if (file.size > MAX_FILE_SIZE) {
+                resetSelectedAudio("파일이 너무 큽니다. 50MB 이하의 음원 파일을 선택해주세요.");
+                return;
+            }
+
+            clearTimeout(metadataTimer);
+            revokeCurrentObjectUrl();
             savedAudioFileName = file.name;
-            const fileURL = URL.createObjectURL(file);
-            audioPreview.src = fileURL;
+            currentObjectUrl = URL.createObjectURL(file);
+            audioPreview.src = currentObjectUrl;
+
+            metadataTimer = setTimeout(() => {
+                resetSelectedAudio("오디오 정보를 불러오지 못했어요. 다른 형식의 음원 파일로 다시 시도해주세요.");
+            }, METADATA_TIMEOUT_MS);
+
+            audioPreview.onerror = function() {
+                resetSelectedAudio("브라우저가 이 오디오 형식을 읽지 못했어요. mp3 또는 wav 파일로 다시 시도해주세요.");
+            };
+
             audioPreview.onloadedmetadata = function() {
+                clearTimeout(metadataTimer);
                 currentAudioDuration = Math.floor(audioPreview.duration);
-                durSlider.max = Math.min(10, currentAudioDuration);
-                
-                durSlider.value = 5; 
+
+                if (!Number.isFinite(currentAudioDuration) || currentAudioDuration < MIN_ANALYZE_DURATION) {
+                    resetSelectedAudio("오디오 길이가 너무 짧아요. 최소 3초 이상의 음원 파일을 선택해주세요.");
+                    return;
+                }
+
+                const maxDuration = Math.min(10, currentAudioDuration);
+                durSlider.max = maxDuration;
+                durSlider.value = Math.min(5, maxDuration);
                 
                 durVal.innerText = formatTime(durSlider.value);
                 startSlider.value = 0; 
@@ -224,12 +333,35 @@
     durSlider.addEventListener('input', () => { syncSliders(); });
 
     document.getElementById('backToStep1Btn').addEventListener('click', () => {
-        audioInput.value = ''; audioPreview.pause(); currentAudioDuration = 0; savedAudioFileName = ''; showStep(step1);
+        if (isAnalyzing || isRecommending) {
+            showStatus("처리가 끝난 뒤 이동해주세요.");
+            return;
+        }
+        audioPreview.pause(); resetSelectedAudio(); clearStatus(); showStep(step1);
     });
 
     document.getElementById('analyzeBtn').addEventListener('click', async () => {
-        if (!audioInput.files[0]) return;
+        if (isAnalyzing) {
+            showStatus("이미 음악의 향기를 추출하고 있어요. 잠시만 기다려주세요.", 'info');
+            return;
+        }
+
+        if (!audioInput.files[0]) {
+            showStatus("먼저 음원 파일을 선택해주세요.");
+            return;
+        }
+
+        const startTime = parseInt(startSlider.value);
+        const duration = parseInt(durSlider.value);
+        if (!Number.isFinite(startTime) || !Number.isFinite(duration) || startTime + duration > currentAudioDuration) {
+            showStatus("선택한 추출 구간이 음원 길이를 벗어났어요. 시작 시간과 추출 길이를 다시 확인해주세요.");
+            syncSliders();
+            return;
+        }
         
+        isAnalyzing = true;
+        setBusy(true);
+        clearStatus();
         loaderTitle.innerHTML = `Brewing Data<span id="loadingDots"></span>`;
         loaderSub.innerText = "음악의 향기를 추출하고 있어요.";
         loaderOverlay.style.display = 'flex';
@@ -245,17 +377,19 @@
 
         const formData = new FormData();
         formData.append('audio', audioInput.files[0]);
-        formData.append('start_time', startSlider.value);
-        formData.append('duration', durSlider.value);
+        formData.append('start_time', startTime);
+        formData.append('duration', duration);
 
         try {
             const response = await fetch('/api/analyze', { method: 'POST', body: formData });
             if (!response.ok) throw new Error("Server Error");
             const result = await response.json();
+            const resultEntries = Object.entries(result);
+            if (resultEntries.length === 0) throw new Error("Empty analysis result");
             
             resultBox.innerHTML = '';
             
-            const top5Results = Object.entries(result)
+            const top5Results = resultEntries
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 5);
 
@@ -270,20 +404,32 @@
             llmResultBox.innerHTML = '';
             recommendBtn.style.display = 'block';
 
-            clearInterval(dotInterval);
-            loaderOverlay.style.display = 'none';
+            stopLoader();
             showStep(step3);
         } catch (error) {
             console.error(error);
-            alert("시스템 에러: 추출에 실패했어요 ㅠㅠ");
-            clearInterval(dotInterval);
-            loaderOverlay.style.display = 'none';
+            showStatus("음악 향기 추출에 실패했어요. 파일이나 추출 구간을 확인한 뒤 다시 시도해주세요.");
+            stopLoader();
+        } finally {
+            isAnalyzing = false;
+            setBusy(false);
         }
     });
 
     recommendBtn.addEventListener('click', async () => {
-        if (savedTop5Genres.length === 0) return;
+        if (isRecommending) {
+            showStatus("이미 추천 곡을 고르고 있어요. 잠시만 기다려주세요.", 'info');
+            return;
+        }
+
+        if (savedTop5Genres.length === 0) {
+            showStatus("장르 분석이 끝난 뒤 추천을 받을 수 있어요.");
+            return;
+        }
         
+        isRecommending = true;
+        setBusy(true);
+        clearStatus();
         loaderTitle.innerHTML = `Asking Barista<span id="loadingDots"></span>`;
         loaderSub.innerText = "바리스타가 어울리는 곡을 고민 중이에요.";
         loaderOverlay.style.display = 'flex';
@@ -305,23 +451,35 @@
             
             if (!response.ok) throw new Error("LLM Server Error");
             const data = await response.json();
+            if (!data.recommendation || !String(data.recommendation).trim()) {
+                throw new Error("Empty recommendation");
+            }
             
-            llmResultBox.innerHTML = data.recommendation;
+            try {
+                llmResultBox.innerHTML = data.recommendation;
+            } catch (renderError) {
+                throw new Error("Recommendation render failed");
+            }
             llmResultBox.style.display = 'block';
             recommendBtn.style.display = 'none';
             
-            clearInterval(dotInterval);
-            loaderOverlay.style.display = 'none';
+            stopLoader();
         } catch (error) {
             console.error(error);
-            alert("바리스타가 너무 바빠서 대답을 못 했어요!");
-            clearInterval(dotInterval);
-            loaderOverlay.style.display = 'none';
+            showStatus("추천 곡을 불러오지 못했어요. 잠시 뒤 다시 시도해주세요.");
+            stopLoader();
+        } finally {
+            isRecommending = false;
+            setBusy(false);
         }
     });
 
     document.getElementById('resetBtn').addEventListener('click', () => {
-        audioInput.value = ''; currentAudioDuration = 0; savedTop5Genres = []; savedAudioFileName = ''; showStep(step1);
+        if (isAnalyzing || isRecommending) {
+            showStatus("처리가 끝난 뒤 새 음원을 선택해주세요.");
+            return;
+        }
+        resetSelectedAudio(); clearStatus(); showStep(step1);
     });
 </script>
 </body>
