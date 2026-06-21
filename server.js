@@ -10,6 +10,9 @@ const https = require('https');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
+const PYTHON_ANALYZE_URL = 'http://127.0.0.1:8000/analyze';
+const PYTHON_TIMEOUT_MS = 15000;
+const GEMINI_TIMEOUT_MS = 20000;
 
 // 연결 재사용(Keep-Alive) 에이전트 설정
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 1000 });
@@ -20,6 +23,164 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static('public'));
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+class AppError extends Error {
+    constructor(status, message, logMessage = message) {
+        super(logMessage);
+        this.status = status;
+        this.publicMessage = message;
+    }
+}
+
+function sendError(res, error, fallbackMessage) {
+    const status = error instanceof AppError ? error.status : 500;
+    const message = error instanceof AppError ? error.publicMessage : fallbackMessage;
+
+    res.status(status).json({ error: message });
+}
+
+function parseNumber(value, fieldName) {
+    const parsed = Number(value);
+
+    if (!Number.isFinite(parsed)) {
+        throw new AppError(400, "분석 요청 값이 올바르지 않습니다.", `${fieldName} must be a finite number`);
+    }
+
+    return parsed;
+}
+
+function validateAnalyzeRequest(req) {
+    if (!req.file) {
+        throw new AppError(400, "분석할 오디오 파일이 없습니다.");
+    }
+
+    const startTime = parseNumber(req.body.start_time, 'start_time');
+    const duration = parseNumber(req.body.duration, 'duration');
+
+    if (startTime < 0 || duration <= 0 || duration > 10) {
+        throw new AppError(400, "분석 구간 값이 올바르지 않습니다.");
+    }
+
+    return { startTime, duration };
+}
+
+function validateAnalyzeResult(result) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+        throw new AppError(502, "분석 서버 응답이 올바르지 않습니다.", "FastAPI response is not an object");
+    }
+
+    const entries = Object.entries(result);
+    if (entries.length === 0) {
+        throw new AppError(502, "분석 결과가 비어 있습니다.", "FastAPI response has no genre scores");
+    }
+
+    for (const [genre, score] of entries) {
+        if (!genre || typeof genre !== 'string' || !Number.isFinite(score)) {
+            throw new AppError(502, "분석 서버 응답이 올바르지 않습니다.", "FastAPI response has invalid genre score");
+        }
+    }
+}
+
+function validateGenres(genres) {
+    if (!Array.isArray(genres) || genres.length === 0) {
+        throw new AppError(400, "추천을 위한 장르 데이터가 없습니다.");
+    }
+
+    return genres.slice(0, 5).map((item) => {
+        if (!item || typeof item !== 'object' || typeof item.genre !== 'string' || typeof item.ratio !== 'string') {
+            throw new AppError(400, "추천 요청의 장르 데이터가 올바르지 않습니다.");
+        }
+
+        const genre = item.genre.trim();
+        const ratio = item.ratio.trim();
+        if (!genre || !ratio) {
+            throw new AppError(400, "추천 요청의 장르 데이터가 올바르지 않습니다.");
+        }
+
+        return {
+            genre,
+            ratio
+        };
+    });
+}
+
+function validateRecommendations(recommendations) {
+    if (!Array.isArray(recommendations) || recommendations.length === 0) {
+        throw new AppError(502, "추천 결과가 비어 있습니다.", "Gemini response has no recommendations");
+    }
+
+    return recommendations.slice(0, 3).map((item) => {
+        if (
+            !item ||
+            typeof item !== 'object' ||
+            typeof item.title !== 'string' ||
+            typeof item.artist !== 'string' ||
+            typeof item.reason !== 'string'
+        ) {
+            throw new AppError(502, "추천 결과 형식이 올바르지 않습니다.", "Gemini response has invalid recommendation item");
+        }
+
+        const title = item.title.trim();
+        const artist = item.artist.trim();
+        const reason = item.reason.trim();
+
+        if (!title || !artist || !reason) {
+            throw new AppError(502, "추천 결과 형식이 올바르지 않습니다.", "Gemini response has empty recommendation field");
+        }
+
+        return { title, artist, reason };
+    });
+}
+
+async function fetchJsonWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new AppError(502, "분석 서버에서 오류가 발생했습니다.", `FastAPI returned ${response.status}: ${responseText}`);
+        }
+
+        try {
+            return JSON.parse(responseText);
+        } catch (error) {
+            throw new AppError(502, "분석 서버 응답을 해석하지 못했습니다.", `FastAPI returned invalid JSON: ${responseText}`);
+        }
+    } catch (error) {
+        if (error instanceof AppError) {
+            throw error;
+        }
+
+        if (error.name === 'AbortError') {
+            throw new AppError(504, "분석 서버 응답 시간이 초과되었습니다.");
+        }
+
+        throw new AppError(502, "분석 서버에 연결하지 못했습니다.", error.message || "FastAPI connection failed");
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function withTimeout(promise, timeoutMs, publicMessage) {
+    let timeout;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise((_, reject) => {
+                timeout = setTimeout(() => reject(new AppError(504, publicMessage)), timeoutMs);
+            })
+        ]);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -36,7 +197,11 @@ function parseJsonResponse(text) {
         .replace(/^```(?:json)?\s*/i, '')
         .replace(/\s*```$/i, '');
 
-    return JSON.parse(withoutFence);
+    try {
+        return JSON.parse(withoutFence);
+    } catch (error) {
+        throw new AppError(502, "AI 바리스타 응답을 해석하지 못했습니다.", `Gemini returned invalid JSON: ${text}`);
+    }
 }
 
 function formatRecommendations(recommendations) {
@@ -52,15 +217,18 @@ function formatRecommendations(recommendations) {
 }
 
 app.post('/api/analyze', upload.single('audio'), async (req, res) => {
-    const { start_time, duration } = req.body;
-    const filePath = path.resolve(req.file.path);
+    const filePath = req.file ? path.resolve(req.file.path) : null;
+    let timerStarted = false;
 
     console.log(`[Node.js] 오디오 파일 도착, 분석을 요청합니다.`);
 
     try {
-        console.time('FastAPI-Latency'); 
+        const { startTime, duration } = validateAnalyzeRequest(req);
+
+        console.time('FastAPI-Latency');
+        timerStarted = true;
         
-        const pyResponse = await fetch('http://127.0.0.1:8000/analyze', {
+        const result = await fetchJsonWithTimeout(PYTHON_ANALYZE_URL, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
@@ -69,31 +237,32 @@ app.post('/api/analyze', upload.single('audio'), async (req, res) => {
             agent: httpAgent,
             body: JSON.stringify({
                 filepath: String(filePath),
-                start_time: parseFloat(start_time),
-                duration: parseFloat(duration)
+                start_time: startTime,
+                duration
             })
-        });
+        }, PYTHON_TIMEOUT_MS);
 
-        if (!pyResponse.ok) {
-            const errorData = await pyResponse.text();
-            throw new Error(`FastAPI에서 에러 발생: ${errorData}`);
-        }
-        
-        const result = await pyResponse.json();
-        console.timeEnd('FastAPI-Latency'); 
+        validateAnalyzeResult(result);
+        console.timeEnd('FastAPI-Latency');
+        timerStarted = false;
         
         console.log('[Node.js] 분석 완료! 손님에게 테이스팅 노트를 전달합니다.');
         res.json(result);
 
     } catch (error) {
+        if (timerStarted) {
+            console.timeEnd('FastAPI-Latency');
+        }
         console.error("[Node.js 통신 에러]:", error.message);
-        res.status(500).json({ error: "오디오 분석 중 내부 통신 에러가 발생했습니다." });
+        sendError(res, error, "오디오 분석 중 내부 통신 에러가 발생했습니다.");
     } finally {
-        try {
-            await fs.unlink(filePath);
-            console.log('[Node.js] 다 쓴 임시 오디오 파일을 깨끗하게 청소했습니다.');
-        } catch (e) {
-            console.error("[Node.js] 파일 청소 실패:", e);
+        if (filePath) {
+            try {
+                await fs.unlink(filePath);
+                console.log('[Node.js] 다 쓴 임시 오디오 파일을 깨끗하게 청소했습니다.');
+            } catch (e) {
+                console.error("[Node.js] 파일 청소 실패:", e);
+            }
         }
     }
 });
@@ -102,11 +271,18 @@ app.post('/api/recommend', async (req, res) => {
     const { genres, trackName } = req.body;
     const requestId = Date.now();
     const timerLabel = `Gemini-Latency-${requestId}`;
+    let timerStarted = false;
     
     console.log(`[Node.js] 테이스팅 노트 도착! Gemini 바리스타에게 추천 곡을 묻습니다.`);
 
     try {
+        if (!process.env.GEMINI_API_KEY) {
+            throw new AppError(500, "추천 서비스 설정이 올바르지 않습니다.", "GEMINI_API_KEY is missing");
+        }
+
+        const safeGenres = validateGenres(genres);
         console.time(timerLabel);
+        timerStarted = true;
         const model = genAI.getGenerativeModel({
             model: "gemini-3.1-flash-lite",
             generationConfig: {
@@ -116,7 +292,7 @@ app.post('/api/recommend', async (req, res) => {
         
         const prompt = `당신은 'Café de Music'의 친절하고 감성적인 AI 바리스타입니다. 손님이 다음 음악 장르 비율(테이스팅 노트)을 가진 음악을 들려주었습니다.
 업로드한 파일명: ${trackName || '알 수 없음'}
-장르 데이터: ${JSON.stringify(genres)}
+장르 데이터: ${JSON.stringify(safeGenres)}
 
 이 취향을 가진 손님에게 어울리는 실제 곡 3개를 추천해주세요.
 업로드한 파일명은 아주 약한 힌트로만 참고하고, 추천의 주된 근거는 장르 데이터로 삼아주세요.
@@ -131,19 +307,33 @@ app.post('/api/recommend', async (req, res) => {
   ]
 }`;
 
-        const result = await model.generateContent(prompt);
+        const result = await withTimeout(
+            model.generateContent(prompt),
+            GEMINI_TIMEOUT_MS,
+            "AI 바리스타 응답 시간이 초과되었습니다."
+        );
         const response = await result.response;
         const text = response.text();
         const parsed = parseJsonResponse(text);
-        const formattedRecommendation = formatRecommendations(parsed.recommendations || []);
+        const safeRecommendations = validateRecommendations(parsed.recommendations);
+        const formattedRecommendation = formatRecommendations(safeRecommendations);
 
         console.timeEnd(timerLabel);
+        timerStarted = false;
         console.log('[Node.js] AI 바리스타 추천 완료!');
         
         res.json({ recommendation: formattedRecommendation });
     } catch (error) {
-        console.error("[Gemini 에러]:", error);
-        res.status(500).json({ error: "AI 바리스타의 큐레이션 생성에 실패했습니다." });
+        if (timerStarted) {
+            console.timeEnd(timerLabel);
+        }
+
+        console.error("[Gemini 에러]:", error.message || error);
+        sendError(
+            res,
+            error instanceof AppError ? error : new AppError(502, "AI 바리스타 호출 중 오류가 발생했습니다.", error.message || String(error)),
+            "AI 바리스타의 큐레이션 생성에 실패했습니다."
+        );
     }
 });
 
