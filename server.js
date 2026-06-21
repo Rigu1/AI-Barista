@@ -206,7 +206,17 @@ async function fetchJsonWithTimeout(url, options, timeoutMs) {
 
         const responseText = await response.text();
         if (!response.ok) {
-            throw new AppError(502, "분석 서버에서 오류가 발생했습니다.", `FastAPI returned ${response.status}: ${responseText}`);
+            let upstreamMessage = "분석 서버에서 오류가 발생했습니다.";
+
+            try {
+                const parsedError = JSON.parse(responseText);
+                upstreamMessage = parsedError.error || parsedError.detail || upstreamMessage;
+            } catch (error) {
+                // Keep the generic public message when the upstream error body is not JSON.
+            }
+
+            const status = response.status >= 400 && response.status < 500 ? response.status : 502;
+            throw new AppError(status, upstreamMessage, `FastAPI returned ${response.status}: ${responseText}`);
         }
 
         try {

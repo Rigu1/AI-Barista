@@ -252,6 +252,26 @@
         return AUDIO_EXTENSIONS.includes(extension);
     }
 
+    async function readJsonResponse(response, fallbackMessage) {
+        let data = {};
+
+        try {
+            data = await response.json();
+        } catch (error) {
+            if (!response.ok) {
+                throw new Error(fallbackMessage);
+            }
+
+            throw new Error("서버 응답을 읽지 못했어요.");
+        }
+
+        if (!response.ok) {
+            throw new Error(data.error || fallbackMessage);
+        }
+
+        return data;
+    }
+
     function showStep(stepElement) {
         document.querySelectorAll('.step-container').forEach(el => el.classList.remove('active'));
         stepElement.classList.add('active');
@@ -382,8 +402,7 @@
 
         try {
             const response = await fetch('/api/analyze', { method: 'POST', body: formData });
-            if (!response.ok) throw new Error("Server Error");
-            const result = await response.json();
+            const result = await readJsonResponse(response, "음악 향기 추출에 실패했어요.");
             const resultEntries = Object.entries(result);
             if (resultEntries.length === 0) throw new Error("Empty analysis result");
             
@@ -408,7 +427,7 @@
             showStep(step3);
         } catch (error) {
             console.error(error);
-            showStatus("음악 향기 추출에 실패했어요. 파일이나 추출 구간을 확인한 뒤 다시 시도해주세요.");
+            showStatus(error.message || "음악 향기 추출에 실패했어요. 파일이나 추출 구간을 확인한 뒤 다시 시도해주세요.");
             stopLoader();
         } finally {
             isAnalyzing = false;
@@ -448,9 +467,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ genres: savedTop5Genres, trackName: savedAudioFileName }) 
             });
-            
-            if (!response.ok) throw new Error("LLM Server Error");
-            const data = await response.json();
+
+            const data = await readJsonResponse(response, "추천 곡을 불러오지 못했어요.");
             if (!data.recommendation || !String(data.recommendation).trim()) {
                 throw new Error("Empty recommendation");
             }
@@ -466,7 +484,7 @@
             stopLoader();
         } catch (error) {
             console.error(error);
-            showStatus("추천 곡을 불러오지 못했어요. 잠시 뒤 다시 시도해주세요.");
+            showStatus(error.message || "추천 곡을 불러오지 못했어요. 잠시 뒤 다시 시도해주세요.");
             stopLoader();
         } finally {
             isRecommending = false;
