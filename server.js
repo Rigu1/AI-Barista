@@ -14,6 +14,7 @@ const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'we
 const PYTHON_ANALYZE_URL = 'http://127.0.0.1:8000/analyze';
 const PYTHON_TIMEOUT_MS = 15000;
 const GEMINI_TIMEOUT_MS = 20000;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 
 function isAcceptedAudioFile(file) {
     if (file.mimetype && file.mimetype.startsWith('audio/')) return true;
@@ -356,7 +357,7 @@ app.post('/api/recommend', async (req, res) => {
         console.time(timerLabel);
         timerStarted = true;
         const model = genAI.getGenerativeModel({
-            model: "gemini-3.5-flash-lite",
+            model: GEMINI_MODEL,
             generationConfig: {
                 responseMimeType: "application/json"
             }
